@@ -15,50 +15,87 @@ const shareRoutes = require('./routes/shareRoutes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-}));
+// -----------------------------------------------------
+// FIXED: PRODUCTION-SAFE CORS + PRE-FLIGHT HANDLING
+// -----------------------------------------------------
+const allowedOrigins = [
+  process.env.FRONTEND_URL,         // Your deployed Static Web App
+  "http://localhost:5173",          // Local dev frontend
+  "http://localhost:3000"           // Optional local backend
+];
 
+// Global CORS handler
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // HANDLE PRE-FLIGHT OPTIONS IMMEDIATELY (fixes 405 errors)
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
+// -----------------------------------------------------
+// Body Parsers
+// -----------------------------------------------------
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Session configuration (required for Passport)
+// -----------------------------------------------------
+// Sessions (needed for Passport OAuth)
+// -----------------------------------------------------
 app.use(session({
   secret: process.env.JWT_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // must be HTTPS in prod
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
 
-// Initialize Passport
+// -----------------------------------------------------
+// Passport Initialization (OAuth & JWT)
+// -----------------------------------------------------
 app.use(passport.initialize());
 app.use(passport.session());
 
+// -----------------------------------------------------
 // Health check route
+// -----------------------------------------------------
 app.get('/health', (req, res) => {
   res.json({ 
-    status: 'ok', 
+    status: 'ok',
     message: 'Photo Editor API is running',
     timestamp: new Date().toISOString()
   });
 });
 
-// API routes
+// -----------------------------------------------------
+// API Routes
+// -----------------------------------------------------
 app.use('/api/auth', authRoutes);
 app.use('/api/photos', photoRoutes);
 app.use('/api/albums', albumRoutes);
 app.use('/api/images', imageRoutes);
 app.use('/api/shares', shareRoutes);
 
-// Error handling middleware
+// -----------------------------------------------------
+// Error Handling Middleware
+// -----------------------------------------------------
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  
+
+  // Multer errors
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ error: 'File too large. Maximum size is 10MB' });
@@ -68,27 +105,33 @@ app.use((err, req, res, next) => {
     }
     return res.status(400).json({ error: err.message });
   }
-  
+
+  // JWT Unauthorized
   if (err.name === 'UnauthorizedError') {
     return res.status(401).json({ error: 'Invalid token' });
   }
-  
-  res.status(500).json({ 
+
+  // Generic
+  res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-// 404 handler
+// -----------------------------------------------------
+// 404 Handler
+// -----------------------------------------------------
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     error: 'Route not found',
     path: req.path,
     method: req.method
   });
 });
 
-// Start server
+// -----------------------------------------------------
+// Start Server
+// -----------------------------------------------------
 app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════╗
@@ -114,18 +157,19 @@ app.listen(PORT, () => {
   console.log('');
 });
 
-// Handle unhandled promise rejections
+// -----------------------------------------------------
+// Unhandled Promise Rejection Handling
+// -----------------------------------------------------
 process.on('unhandledRejection', (err) => {
   console.error('Unhandled Promise Rejection:', err);
-  // Don't exit in development
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
+  if (process.env.NODE_ENV === 'production') process.exit(1);
 });
 
-// Graceful shutdown
+// -----------------------------------------------------
+// Graceful Shutdown
+// -----------------------------------------------------
 process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
+  console.log('SIGTERM signal received: shutting down server');
   server.close(() => {
     console.log('HTTP server closed');
     process.exit(0);
