@@ -8,10 +8,10 @@ passport.use(
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_CALLBACK_URL,
-      proxy: true, // Important for Azure App Service
-      passReqToCallback: true
+      proxy: true
+      // Remove passReqToCallback: true
     },
-    async (accessToken, refreshToken, profile, done) => {
+    async (accessToken, refreshToken, profile, done) => {  // ✅ Correct!
       try {
         const user = await User.findOrCreateFromGoogle({
           googleId: profile.id,
@@ -22,6 +22,7 @@ passport.use(
         
         return done(null, user);
       } catch (error) {
+        console.error('Google OAuth error:', error);
         return done(error, null);
       }
     }
